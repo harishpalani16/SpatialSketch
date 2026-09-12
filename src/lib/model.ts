@@ -1,12 +1,20 @@
 import { z } from 'zod';
 
-export const planeSchema = z.enum(['ground', 'front', 'side']);
-export const kindSchema = z.enum(['mass', 'wall', 'slab', 'box', 'cylinder']);
+export const planeSchema = z.enum(['ground', 'front', 'side', 'custom']);
+export const kindSchema = z.enum(['mass', 'wall', 'slab', 'box', 'cylinder', 'sphere', 'gable', 'table', 'chair', 'pavilion']);
+export const vectorSchema = z.tuple([z.number().finite().min(-2000).max(2000), z.number().finite().min(-2000).max(2000), z.number().finite().min(-2000).max(2000)]);
+export const frameSchema = z.object({ origin: vectorSchema, u: vectorSchema, v: vectorSchema, label: z.string().max(80).optional(), hostObjectId: z.string().max(80).optional() }).strict().refine(f => {
+  const length = (v: number[]) => Math.hypot(...v);
+  const dot = f.u.reduce((sum, x, i) => sum + x * f.v[i], 0);
+  return Math.abs(length(f.u) - 1) < 0.0001 && Math.abs(length(f.v) - 1) < 0.0001 && Math.abs(dot) < 0.0001;
+}, 'Sketch frames need perpendicular unit axes.');
+export type SketchFrame = z.infer<typeof frameSchema>;
 export const pointSchema = z.object({ x: z.number().finite().min(-1000).max(1000), y: z.number().finite().min(-1000).max(1000) }).strict();
 const idSchema = z.string().min(1).max(80);
 export const strokeSchema = z.object({
   id: idSchema, plane: planeSchema, offset: z.number().finite().min(-200).max(200),
   points: z.array(pointSchema).min(2).max(1500),
+  frame: frameSchema.optional(),
 }).strict();
 export const objectSchema = z.object({
   id: idSchema, name: z.string().min(1).max(80), kind: kindSchema, plane: planeSchema,
@@ -15,19 +23,20 @@ export const objectSchema = z.object({
   thickness: z.number().finite().min(0.05).max(10), floors: z.number().int().min(1).max(60),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   sourceStrokeId: idSchema.optional(),
+  frame: frameSchema.optional(),
 }).strict();
 export const projectSchema = z.object({
-  version: z.literal(1), name: z.string().min(1).max(80),
+  version: z.union([z.literal(1), z.literal(2)]), name: z.string().min(1).max(80),
   objects: z.array(objectSchema).max(100), strokes: z.array(strokeSchema).max(100),
-}).strict();
+}).strict().transform(p => ({ ...p, version: 2 as const }));
 export type Point = z.infer<typeof pointSchema>;
 export type Plane = z.infer<typeof planeSchema>;
 export type Kind = z.infer<typeof kindSchema>;
 export type Stroke = z.infer<typeof strokeSchema>;
 export type ModelObject = z.infer<typeof objectSchema>;
 export type Project = z.infer<typeof projectSchema>;
-export const planeNames: Record<Plane, string> = { ground: 'Ground · XZ', front: 'Front · XY', side: 'Side · YZ' };
-export const kindNames: Record<Kind, string> = { mass: 'Building mass', wall: 'Wall', slab: 'Slab', box: 'Box', cylinder: 'Cylinder' };
+export const planeNames: Record<Plane, string> = { ground: 'Ground · XZ', front: 'Front · XY', side: 'Side · YZ', custom: 'Spatial plane' };
+export const kindNames: Record<Kind, string> = { mass: 'Building mass', wall: 'Wall', slab: 'Slab', box: 'Box', cylinder: 'Cylinder', sphere: 'Ellipsoid', gable: 'Gable roof', table: 'Table', chair: 'Chair', pavilion: 'Pavilion' };
 export const palette = ['#c3c9aa', '#ddd2b6', '#b9c9ca', '#d3bbae', '#c6bfd0', '#dadbd5'];
 export function uid() {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -37,7 +46,7 @@ export function uid() {
   const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
   return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
 }
-export function emptyProject(): Project { return { version: 1, name: 'Untitled study', objects: [], strokes: [] }; }
+export function emptyProject(): Project { return { version: 2, name: 'Untitled study', objects: [], strokes: [] }; }
 export function distance(a: Point, b: Point) { return Math.hypot(a.x - b.x, a.y - b.y); }
 export function polygonArea(points: Point[]) {
   return Math.abs(points.reduce((a, p, i) => { const q = points[(i + 1) % points.length]; return a + p.x * q.y - q.x * p.y; }, 0)) / 2;
@@ -80,11 +89,11 @@ export function profileFromStroke(stroke: Stroke, kind: Kind): Point[] {
   const raw = stroke.points.filter((p, i, a) => !i || distance(p, a[i - 1]) > 0.005);
   if (raw.length < 2) throw new Error('Draw a shape first.');
   const b = bounds(raw);
-  if (kind === 'box') {
+  if (['box', 'table', 'chair', 'pavilion', 'gable'].includes(kind)) {
     const profile = [{ x: b.minX, y: b.minY }, { x: b.maxX, y: b.minY }, { x: b.maxX, y: b.maxY }, { x: b.minX, y: b.maxY }];
     validateProfile(profile, true); return profile;
   }
-  if (kind === 'cylinder') {
+  if (kind === 'cylinder' || kind === 'sphere') {
     const rx = (b.maxX - b.minX) / 2, ry = (b.maxY - b.minY) / 2;
     if (Math.min(rx, ry) < 0.1) throw new Error('Draw an outline with some width and depth for the cylinder.');
     return Array.from({ length: 48 }, (_, i) => ({ x: (b.minX + b.maxX) / 2 + rx * Math.cos(i / 48 * Math.PI * 2), y: (b.minY + b.maxY) / 2 + ry * Math.sin(i / 48 * Math.PI * 2) }));
@@ -96,17 +105,30 @@ export function profileFromStroke(stroke: Stroke, kind: Kind): Point[] {
   validateProfile(points, kind !== 'wall'); return points;
 }
 export function createObject(stroke: Stroke, kind: Kind, params: Partial<Pick<ModelObject, 'name' | 'height' | 'thickness' | 'floors' | 'color'>> = {}): ModelObject {
-  return objectSchema.parse({ id: uid(), name: kindNames[kind], kind, plane: stroke.plane, profile: profileFromStroke(stroke, kind), offset: stroke.offset, height: kind === 'slab' ? 0.25 : 3.6, thickness: 0.25, floors: 1, color: palette[0], sourceStrokeId: stroke.id, ...params });
+  return objectSchema.parse({ id: uid(), name: kindNames[kind], kind, plane: stroke.plane, frame: stroke.frame, profile: profileFromStroke(stroke, kind), offset: stroke.offset, height: kind === 'slab' ? 0.25 : 3.6, thickness: 0.25, floors: 1, color: palette[0], sourceStrokeId: stroke.id, ...params });
 }
 export function parseProject(value: unknown): Project {
   const p = projectSchema.parse(value);
   if (new Set(p.objects.map(o => o.id)).size !== p.objects.length || new Set(p.strokes.map(s => s.id)).size !== p.strokes.length) throw new Error('Project IDs must be unique.');
-  p.objects.forEach(o => validateProfile(o.profile, o.kind !== 'wall'));
+  for (const item of [...p.objects, ...p.strokes]) if (item.plane === 'custom' && !item.frame) throw new Error('A spatial sketch or object must include its frame.');
+  p.objects.forEach(o => {
+    validateProfile(o.profile, o.kind !== 'wall');
+    if (['table', 'chair', 'pavilion', 'gable'].includes(o.kind)) {
+      const a = o.profile;
+      if (a.length !== 4 || Math.hypot(a[0].x+a[2].x-a[1].x-a[3].x,a[0].y+a[2].y-a[1].y-a[3].y) > 0.001) throw new Error('Furniture and roof profiles must have four corners forming a parallelogram.');
+    }
+    if (o.kind === 'sphere') {
+      const a = o.profile;
+      if (a.length !== 48) throw new Error('Ellipsoid profiles require 48 ellipse points.');
+      const cx = a.reduce((sum,p) => sum+p.x,0)/48, cy = a.reduce((sum,p) => sum+p.y,0)/48;
+      if (a.some((p,i) => Math.hypot(p.x-cx-(a[0].x-cx)*Math.cos(i*Math.PI/24)-(a[12].x-cx)*Math.sin(i*Math.PI/24),p.y-cy-(a[0].y-cy)*Math.cos(i*Math.PI/24)-(a[12].y-cy)*Math.sin(i*Math.PI/24)) > 0.001)) throw new Error('The ellipsoid profile is not an ellipse.');
+    }
+  });
   return p;
 }
 export function sampleProject(): Project {
   const profile = [{ x: -6, y: -4 }, { x: 6, y: -4 }, { x: 6, y: 0 }, { x: -1, y: 0 }, { x: -1, y: 5 }, { x: -6, y: 5 }];
-  return { version: 1, name: 'Courtyard study', strokes: [], objects: [
+  return { version: 2, name: 'Courtyard study', strokes: [], objects: [
     { id: 'sample-ground', name: 'Site plinth', kind: 'slab', plane: 'ground', profile: [{ x: -8, y: -6 }, { x: 8, y: -6 }, { x: 8, y: 7 }, { x: -8, y: 7 }], offset: 0, height: 0.2, thickness: 0.25, floors: 1, color: '#ddd8c9' },
     { id: 'sample-mass', name: 'Courtyard volume', kind: 'mass', plane: 'ground', profile, offset: 0.2, height: 7.2, thickness: 0.25, floors: 2, color: palette[0] },
   ] };

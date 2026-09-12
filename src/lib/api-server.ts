@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { projectSchema, parseProject } from './model';
+import { projectSchema, parseProject, frameSchema } from './model';
+import { baseFrame } from './spatial';
 import { systemPrompt, parseIntentText, applyIntent } from './intent';
 
 export const connectionSchema = z.object({ endpoint: z.string().url().max(500), model: z.string().trim().min(1).max(200), key: z.string().trim().min(1).max(4096) }).strict();
@@ -8,6 +9,7 @@ export const requestSchema = z.object({
   mode: z.enum(['test', 'interpret']), connection: connectionSchema,
   instruction: z.string().trim().max(3000).optional(), project: projectSchema.optional(),
   selectedId: z.string().max(80).nullable().optional(), strokeId: z.string().max(80).nullable().optional(),
+  activeFrame: frameSchema.optional(),
 }).strict();
 export const defaultHosts = ['api.ifm.ai', 'platform.ifm.ai', 'api.cerebras.ai', 'api.groq.com', 'openrouter.ai', 'api.together.xyz', 'api.together.ai'];
 export function validateEndpoint(endpoint: string, extraHosts = '') {
@@ -25,11 +27,11 @@ export async function runAI(raw: unknown, fetcher: typeof fetch = fetch, extraHo
   let messages: { role: string; content: string }[];
   if (body.mode === 'test') messages = [{ role: 'user', content: 'Reply with the single word connected.' }];
   else {
-    if (!body.project || !body.instruction) throw new Error('Add a sketch or select an object, then enter an instruction.');
+    if (!body.project || !body.instruction) throw new Error('Enter an instruction for your study.');
     const project = parseProject(body.project);
     messages = [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: JSON.stringify({ instruction: body.instruction, units: 'meters', selectedObjectId: body.selectedId, activeStrokeId: body.strokeId, project }) },
+      { role: 'user', content: JSON.stringify({ instruction: body.instruction, units: 'meters', selectedObjectId: body.selectedId, activeStrokeId: body.strokeId, activeFrame: body.activeFrame ?? baseFrame(), project }) },
     ];
   }
   let response: Response;
@@ -54,7 +56,7 @@ export async function runAI(raw: unknown, fetcher: typeof fetch = fetch, extraHo
   if (typeof content !== 'string' || !content.trim()) throw new Error('The model returned no final text. It may need a different token budget or API format.');
   if (body.mode === 'test') return { connected: true };
   const intent = parseIntentText(content);
-  applyIntent(body.project!, intent);
+  applyIntent(body.project!, intent, body.activeFrame);
   return { intent };
 }
 export async function readLimited(message: Request | Response, limit: number) {

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 async function drawRectangle(page: Page) {
+  await page.getByRole('button', { name: '2D pad', exact: true }).click();
   await page.getByRole('button', { name: 'Rectangle', exact: true }).click();
   const box = await page.getByTestId('sketch-canvas').boundingBox();
   if (!box) throw new Error('No sketch surface');
@@ -44,7 +45,7 @@ test('an AI response cannot overwrite a newer manual edit', async ({ page }) => 
     started = true; await gate;
     await route.fulfill({ json: { intent: { summary: 'Change height', actions: [{ type: 'update', objectId: 'sample-mass', changes: { height: 20 } }] } } });
   });
-  await page.goto('/'); await page.getByRole('button', { name: 'Connect API', exact: true }).click();
+  await page.goto('/'); await expect(page.getByTestId('model-canvas')).toBeVisible(); await page.getByRole('button', { name: 'Connect API', exact: true }).click();
   await page.getByLabel('Chat Completions endpoint').fill('https://api.ifm.ai/v1/chat/completions');
   await page.getByLabel('Model name', { exact: true }).fill('test-model'); await page.getByLabel('API key', { exact: true }).fill('test-only-key');
   await page.getByRole('button', { name: 'Use for this session' }).click();
@@ -56,7 +57,8 @@ test('an AI response cannot overwrite a newer manual edit', async ({ page }) => 
   await expect(page.getByRole('button', { name: 'Apply change', exact: true })).toHaveCount(0);
 });
 test('cancelled pen strokes are discarded and the next stroke works', async ({ page }) => {
-  await page.goto('/'); await page.getByRole('button', { name: 'Start a fresh study' }).click();
+  await page.goto('/'); await expect(page.getByTestId('model-canvas')).toBeVisible(); await page.getByRole('button', { name: 'Start a fresh study' }).click();
+  await page.getByRole('button', { name: '2D pad', exact: true }).click();
   const canvas = page.getByTestId('sketch-canvas');
   await canvas.evaluate(element => {
     element.setPointerCapture = () => {};
@@ -75,7 +77,7 @@ test('session keys are cleared on refresh, excluded from exports, and AI require
     const data = route.request().postDataJSON();
     await route.fulfill({ json: data.mode === 'test' ? { connected: true } : { intent: { summary: 'Three floors at 3.6 meters each.', actions: [{ type: 'update', objectId: 'sample-mass', changes: { height: 10.8, floors: 3 } }] } } });
   });
-  await page.goto('/'); await page.getByRole('button', { name: 'Connect API', exact: true }).click();
+  await page.goto('/'); await expect(page.getByTestId('model-canvas')).toBeVisible(); await page.getByRole('button', { name: 'Connect API', exact: true }).click();
   await page.getByLabel('Chat Completions endpoint').fill('https://api.ifm.ai/v1/chat/completions');
   await page.getByLabel('Model name', { exact: true }).fill('test-model'); await page.getByLabel('API key', { exact: true }).fill('test-only-session-secret');
   await page.getByRole('button', { name: 'Test connection', exact: true }).click(); await expect(page.getByText('Connected successfully. Ready to interpret your sketches.')).toBeVisible();
@@ -89,12 +91,13 @@ test('session keys are cleared on refresh, excluded from exports, and AI require
   const downloadEvent = page.waitForEvent('download'); await page.getByRole('button', { name: 'Download project', exact: true }).click();
   const result = await downloadEvent; const location = testInfo.outputPath('no-secrets.json'); await result.saveAs(location);
   const { readFile } = await import('node:fs/promises'); expect(await readFile(location, 'utf8')).not.toMatch(/test-only-session-secret|endpoint|apiKey/);
-  await page.reload(); await expect(page.getByRole('button', { name: 'Connect API', exact: true })).toBeVisible();
+  await page.reload(); await expect(page.getByTestId('model-canvas')).toBeVisible(); await expect(page.getByRole('button', { name: 'Connect API', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Connect API', exact: true }).click(); await expect(page.getByLabel('API key', { exact: true })).toHaveValue('');
 });
 test('tablet pen input and responsive phone layout', async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 1024, height: 768 }); await page.goto('/');
+  await page.setViewportSize({ width: 1024, height: 768 }); await page.goto('/'); await expect(page.getByTestId('model-canvas')).toBeVisible();
   await page.getByRole('button', { name: 'Start a fresh study' }).click();
+  await page.getByRole('button', { name: '2D pad', exact: true }).click();
   const canvas = page.getByTestId('sketch-canvas'); const box = await canvas.boundingBox(); if (!box) throw new Error('No canvas');
   // Browser-dispatched pen events verify the pointer path; physical Pencil still needs a device check.
   const points = [[.3,.3],[.7,.3],[.7,.7],[.3,.7],[.3,.3]];
@@ -108,7 +111,7 @@ test('tablet pen input and responsive phone layout', async ({ page }, testInfo) 
   await expect(page.getByRole('button', { name: 'Create form', exact: true })).toBeEnabled(); await page.getByRole('button', { name: 'Create form', exact: true }).click();
   await page.screenshot({ path: testInfo.outputPath('tablet.png') });
   await page.setViewportSize({ width: 390, height: 844 }); await page.reload();
-  await expect(page.getByTestId('sketch-canvas')).toBeVisible();
+  await expect(page.getByTestId('model-canvas')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('phone.png') });
 });
