@@ -3,10 +3,21 @@ import { readLimited, runAI } from '@/lib/api-server';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
+function isSameOrigin(request: Request) {
+  const origin = request.headers.get('origin');
+  if (!origin) return true;
+  try {
+    // Next's internal URL can use the bind address (0.0.0.0); the browser uses Host.
+    const internalURL = new URL(request.url);
+    const host = request.headers.get('host') || internalURL.host;
+    const forwardedProtocol = request.headers.get('x-forwarded-proto');
+    const protocol = forwardedProtocol === 'https' || forwardedProtocol === 'http' ? forwardedProtocol + ':' : internalURL.protocol;
+    return origin === new URL(protocol + '//' + host).origin;
+  } catch { return false; }
+}
 export async function POST(request: Request) {
   const headers = { 'Cache-Control': 'no-store' };
-  const origin = request.headers.get('origin');
-  if (origin && origin !== new URL(request.url).origin) return Response.json({ error: 'Use the API from this application.' }, { status: 403, headers });
+  if (!isSameOrigin(request)) return Response.json({ error: 'Use the API from this application.' }, { status: 403, headers });
   if (!request.headers.get('content-type')?.includes('application/json')) return Response.json({ error: 'Expected a JSON request.' }, { status: 415, headers });
   try {
     const body = JSON.parse(await readLimited(request, 512 * 1024));

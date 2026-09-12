@@ -5,6 +5,19 @@ import { POST } from '../src/app/api/ai/route';
 
 const connection = { endpoint: 'https://api.ifm.ai/v1/chat/completions', model: 'test-model', key: 'test-only-not-a-real-key' };
 describe('session API proxy', () => {
+  it('accepts the browser Host when Next uses an internal bind address', async () => {
+    const response = await POST(new Request('http://0.0.0.0:3001/api/ai', { method: 'POST', headers: { host: 'localhost:3001', origin: 'http://localhost:3001', 'content-type': 'application/json' }, body: '{}' }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'Check your API settings and project data.' });
+    const denied = await POST(new Request('http://0.0.0.0:3001/api/ai', { method: 'POST', headers: { host: 'localhost:3001', origin: 'http://localhost:3999', 'content-type': 'application/json' }, body: '{}' }));
+    expect(denied.status).toBe(403);
+  });
+  it('accepts the public HTTPS scheme behind a proxy without trusting a forwarded hostname', async () => {
+    const response = await POST(new Request('http://0.0.0.0:3001/api/ai', { method: 'POST', headers: { host: 'sketch.example', origin: 'https://sketch.example', 'x-forwarded-proto': 'https', 'content-type': 'application/json' }, body: '{}' }));
+    expect(response.status).toBe(400);
+    const denied = await POST(new Request('http://0.0.0.0:3001/api/ai', { method: 'POST', headers: { host: 'sketch.example', origin: 'https://evil.example', 'x-forwarded-host': 'evil.example', 'x-forwarded-proto': 'https', 'content-type': 'application/json' }, body: '{}' }));
+    expect(denied.status).toBe(403);
+  });
   it('rejects arbitrary destinations, private hosts, URL credentials, and redirect paths', () => {
     for (const url of ['http://api.ifm.ai/v1/chat/completions', 'https://127.0.0.1/v1/chat/completions', 'https://evil.example/v1/chat/completions', 'https://user:pass@api.ifm.ai/v1/chat/completions', 'https://api.ifm.ai/v1/chat/completions?key=secret', 'https://api.ifm.ai/v1/models']) expect(() => validateEndpoint(url)).toThrow();
     expect(validateEndpoint(connection.endpoint).hostname).toBe('api.ifm.ai');
