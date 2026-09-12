@@ -16,7 +16,7 @@ it('rejects empty, oversized and unsupported audio before provider upload',async
 });
 it('keeps provider errors and keys out of transcription output',async()=>{
   await expect(transcribe(audio(),vi.fn().mockResolvedValue(Response.json({error:'secret'}, {status:401})))).rejects.toThrow('rejected the key');
-  await expect(transcribe(audio(),vi.fn().mockResolvedValue(Response.json({text:''})))).rejects.toThrow('No speech');
+  await expect(transcribe(audio(),vi.fn().mockResolvedValue(Response.json({text:''})))).rejects.toThrow('empty transcript');
   expect(isSameOrigin(new Request('http://localhost/api/speech',{headers:{origin:'https://other.example'}}))).toBe(false);
 });
 it('uses the current OpenAI completion budget field without enabling stored completions',async()=>{

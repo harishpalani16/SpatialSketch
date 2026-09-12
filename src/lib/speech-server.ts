@@ -22,7 +22,7 @@ export async function transcribe(request:Request,fetcher:typeof fetch=fetch){
     throw new Error('ElevenLabs could not transcribe this recording (HTTP '+response.status+'). Try a shorter recording.');
   }
   let result;try{result=JSON.parse(await readLimited(response,128*1024));}catch{throw new Error('ElevenLabs returned an unreadable transcript. Try again.');}
-  if(typeof result.text!=='string'||!result.text.trim())throw new Error('No speech was detected. Try speaking closer to the microphone.');
+  if(typeof result.text!=='string'||!result.text.trim())throw new Error('ElevenLabs returned an empty transcript. Play the recording below to check the captured audio, or select another microphone in Voice settings.');
   if(result.text.length>12000)throw new Error('Transcript is too long for a design prompt. Try a shorter recording.');
   return {text:result.text.trim()};
 }
