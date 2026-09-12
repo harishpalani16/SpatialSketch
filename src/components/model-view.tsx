@@ -9,14 +9,15 @@ import { strokeBounds } from '@/lib/session';
 import { buildScene, disposeGroup, strokeLine } from '@/lib/geometry';
 import { distance, uid, type ModelObject, type Point, type SketchFrame, type Stroke, type ReferenceModel } from '@/lib/model';
 import { frameForCamera, frameFromNormal, frameMatrix, frameNormal, projectRay } from '@/lib/spatial';
+import { PreviewMaterials, type PreviewMode } from '@/lib/preview-materials';
 import type { SketchTool } from './sketch-canvas';
 
 export type SpatialMode = 'draw' | 'navigate' | 'pick-face' | 'transform';
 export type TransformTarget = 'sketch' | 'plane' | 'reference';
 export type GizmoMode = 'translate' | 'rotate' | 'scale';
 export type ModelViewHandle = { fit: () => void; view: (direction: 'iso' | 'top') => void; viewPlane: () => void; alignPlane: () => void; exportGLB: () => Promise<ArrayBuffer> };
-type Props = { objects: ModelObject[]; committedIds: string[]; strokes: Stroke[]; selectedId: string | null; onSelect: (id: string) => void; activeFrame: SketchFrame; mode: SpatialMode; tool: SketchTool; snap: boolean; touchDraw: boolean; showPlane: boolean; onFrame: (frame: SketchFrame) => void; onStroke: (s: Stroke) => void; onMessage: (message: string) => void; references:ReferenceModel[]; assets:AssetCache; selectedReferenceId:string|null; selectedStrokeIds:string[]; onSelectStroke:(id:string,additive:boolean)=>void; onSelectReference:(id:string)=>void; transformTarget:TransformTarget; gizmoMode:GizmoMode; onTransform:(matrix:THREE.Matrix4)=>void; planeWidth:number; planeHeight:number; canDraw:boolean };
-type Engine = { scene: THREE.Scene; renderer: THREE.WebGLRenderer; camera: THREE.PerspectiveCamera; controls: OrbitControls; root: THREE.Group; ink: THREE.Group; guide: THREE.Group; draft: THREE.Group; references:THREE.Group; gizmo:TransformControls; proxy:THREE.Group; transforming:boolean; dirty: boolean };
+type Props = { previewMode: PreviewMode; objects: ModelObject[]; committedIds: string[]; strokes: Stroke[]; selectedId: string | null; onSelect: (id: string) => void; activeFrame: SketchFrame; mode: SpatialMode; tool: SketchTool; snap: boolean; touchDraw: boolean; showPlane: boolean; onFrame: (frame: SketchFrame) => void; onStroke: (s: Stroke) => void; onMessage: (message: string) => void; references:ReferenceModel[]; assets:AssetCache; selectedReferenceId:string|null; selectedStrokeIds:string[]; onSelectStroke:(id:string,additive:boolean)=>void; onSelectReference:(id:string)=>void; transformTarget:TransformTarget; gizmoMode:GizmoMode; onTransform:(matrix:THREE.Matrix4)=>void; planeWidth:number; planeHeight:number; canDraw:boolean };
+type Engine = { scene: THREE.Scene; renderer: THREE.WebGLRenderer; camera: THREE.PerspectiveCamera; controls: OrbitControls; root: THREE.Group; ink: THREE.Group; guide: THREE.Group; draft: THREE.Group; references:THREE.Group; gizmo:TransformControls; proxy:THREE.Group; transforming:boolean; rootPreview:PreviewMaterials; referencePreview:PreviewMaterials; sun:THREE.DirectionalLight; hemisphere:THREE.HemisphereLight; dirty: boolean };
 
 function fit(engine: Engine, direction?: 'iso' | 'top') {
   const box = new THREE.Box3().setFromObject(engine.root).union(new THREE.Box3().setFromObject(engine.ink)).union(new THREE.Box3().setFromObject(engine.references));
@@ -82,7 +83,7 @@ const ModelView = forwardRef<ModelViewHandle, Props>(function ModelView(props, r
     const controls = new OrbitControls(camera, canvas);
     controls.enableDamping = true; controls.dampingFactor = 0.09;
     controls.minDistance = 0.5; controls.maxDistance = 1500;
-    scene.add(new THREE.HemisphereLight('#fffef2', '#b3b7a7', 2.5));
+    const hemisphere=new THREE.HemisphereLight('#fffef2', '#b3b7a7', 2.5);scene.add(hemisphere);
     const sun = new THREE.DirectionalLight('#fff9e9', 3.2); sun.position.set(-14, 30, 16); sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048); sun.shadow.camera.left = -40; sun.shadow.camera.right = 40; sun.shadow.camera.top = 40; sun.shadow.camera.bottom = -40;
     sun.shadow.camera.far = 100; sun.shadow.normalBias = 0.03; sun.shadow.bias = -0.0001; scene.add(sun);
@@ -91,7 +92,7 @@ const ModelView = forwardRef<ModelViewHandle, Props>(function ModelView(props, r
     const root = buildScene(propsRef.current.objects), ink = new THREE.Group(), guide = new THREE.Group(), draft = new THREE.Group(); scene.add(root, ink, guide, draft);
     const references=new THREE.Group(),proxy=new THREE.Group();scene.add(references,proxy);
     const gizmo=new TransformControls(camera,canvas);gizmo.setSize(1.15);scene.add(gizmo.getHelper());
-    const engine: Engine = { scene, renderer, camera, controls, root, ink, guide, draft, references, proxy, gizmo, transforming:false, dirty: true }; engineRef.current = engine;
+    const engine: Engine = { scene, renderer, camera, controls, root, ink, guide, draft, references, proxy, gizmo, transforming:false, rootPreview:new PreviewMaterials(root), referencePreview:new PreviewMaterials(references), sun, hemisphere, dirty: true }; engineRef.current = engine;
     let startMatrix=new THREE.Matrix4(),startToken='',moving:{object:THREE.Object3D;matrix:THREE.Matrix4}[]=[];
     const token=()=>JSON.stringify([propsRef.current.transformTarget,propsRef.current.selectedStrokeIds,propsRef.current.selectedReferenceId]);
     gizmo.addEventListener('mouseDown',()=>{
@@ -191,15 +192,25 @@ const ModelView = forwardRef<ModelViewHandle, Props>(function ModelView(props, r
     return () => {
       cancelAnimationFrame(animation); resize.disconnect(); controls.dispose();
       canvas.removeEventListener('pointerdown',pointerDown,true); canvas.removeEventListener('pointermove',pointerMove,true); canvas.removeEventListener('pointerup',pointerUp,true); canvas.removeEventListener('pointercancel',pointerCancel,true); canvas.removeEventListener('lostpointercapture',lostCapture,true); canvas.removeEventListener('webglcontextlost',lost);
-      gizmo.dispose();scene.remove(gizmo.getHelper(),engine.references);disposeReferenceInstances(engine.references);disposeGroup(scene); renderer.dispose(); renderer.forceContextLoss(); canvas.remove(); engineRef.current = null;
+      engine.rootPreview.dispose();engine.referencePreview.dispose();gizmo.dispose();scene.remove(gizmo.getHelper(),engine.references);disposeReferenceInstances(engine.references);disposeGroup(scene); renderer.dispose(); renderer.forceContextLoss(); canvas.remove(); engineRef.current = null;
     };
   }, []);
   useEffect(() => {
     const e = engineRef.current; if (!e) return;
-    e.scene.remove(e.root); disposeGroup(e.root); e.root = buildScene(props.objects,props.selectedId); e.scene.add(e.root); e.dirty = true;
+    e.rootPreview.dispose();e.scene.remove(e.root); disposeGroup(e.root); e.root = buildScene(props.objects,props.selectedId); e.scene.add(e.root);e.rootPreview=new PreviewMaterials(e.root); e.dirty = true;
   }, [props.objects,props.selectedId]);
   useEffect(() => { const e = engineRef.current; if (!e) return; disposeGroup(e.ink); e.ink.clear(); props.strokes.forEach(s => {const line=strokeLine(s.points,s.plane,s.offset,s.frame);line.userData.strokeId=s.id;if(props.selectedStrokeIds.includes(s.id))(line.material as THREE.LineBasicMaterial).color.set('#4564b4');e.ink.add(line);}); e.dirty = true; }, [props.strokes,props.selectedStrokeIds]);
-  useEffect(()=>{const e=engineRef.current;if(!e)return;e.scene.remove(e.references);disposeReferenceInstances(e.references);e.references=buildReferences(stableReferences,props.assets);e.scene.add(e.references);e.dirty=true;},[stableReferences,props.assets]);
+  useEffect(()=>{const e=engineRef.current;if(!e)return;e.referencePreview.dispose();e.scene.remove(e.references);disposeReferenceInstances(e.references);e.references=buildReferences(stableReferences,props.assets);e.scene.add(e.references);e.referencePreview=new PreviewMaterials(e.references);e.dirty=true;},[stableReferences,props.assets]);
+  useEffect(() => {
+    const e=engineRef.current;if(!e)return;
+    const shaded=props.previewMode==='shaded';
+    e.rootPreview.setMode(props.previewMode);e.referencePreview.setMode(props.previewMode);
+    e.renderer.shadowMap.enabled=!shaded;
+    e.renderer.setPixelRatio(Math.min(window.devicePixelRatio,shaded?1:1.75));
+    e.renderer.toneMapping=shaded?THREE.NoToneMapping:THREE.ACESFilmicToneMapping;
+    e.hemisphere.intensity=shaded?.85:2.5;e.sun.intensity=shaded?1.25:3.2;
+    e.renderer.domElement.dataset.previewMode=props.previewMode;e.dirty=true;
+  },[props.previewMode,props.objects,props.selectedId,stableReferences,props.assets]);
   useEffect(() => { const e = engineRef.current; if (!e) return; disposeGroup(e.guide); e.guide.clear();e.guide.matrix.identity(); if (props.showPlane) e.guide.add(planeGuide(props.activeFrame,props.planeWidth,props.planeHeight)); e.renderer.domElement.style.cursor = props.mode === 'navigate' ? 'grab' : 'crosshair'; e.dirty = true; }, [props.activeFrame,props.showPlane,props.mode,props.planeWidth,props.planeHeight]);
   useEffect(()=>{
     const e=engineRef.current;if(!e || e.transforming)return;

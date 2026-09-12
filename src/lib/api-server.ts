@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { projectSchema, parseProject, frameSchema } from './model';
 import { baseFrame } from './spatial';
 import { systemPrompt, parseIntentText, applyIntent } from './intent';
+import { sketchContext } from './ai-context';
 
 export const connectionSchema = z.object({ endpoint: z.string().url().max(500), model: z.string().trim().min(1).max(200), key: z.string().trim().min(1).max(4096) }).strict();
 export type Connection = z.infer<typeof connectionSchema>;
@@ -10,6 +11,7 @@ export const requestSchema = z.object({
   instruction: z.string().trim().max(3000).optional(), project: projectSchema.optional(),
   selectedId: z.string().max(80).nullable().optional(), strokeId: z.string().max(80).nullable().optional(),
   activeFrame: frameSchema.optional(),
+  activeGroupId:z.string().max(80).nullable().optional(), selectedStrokeIds:z.array(z.string().max(80)).max(1000).optional(),
 }).strict();
 export const defaultHosts = ['api.ifm.ai', 'platform.ifm.ai', 'api.cerebras.ai', 'api.groq.com', 'openrouter.ai', 'api.together.xyz', 'api.together.ai'];
 export function validateEndpoint(endpoint: string, extraHosts = '') {
@@ -31,33 +33,45 @@ export async function runAI(raw: unknown, fetcher: typeof fetch = fetch, extraHo
     const project = parseProject(body.project);
     messages = [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: JSON.stringify({ instruction: body.instruction, units: 'meters', selectedObjectId: body.selectedId, activeStrokeId: body.strokeId, activeFrame: body.activeFrame ?? baseFrame(), project }) },
+      { role: 'user', content: JSON.stringify({ instruction: body.instruction, units: 'meters', selectedObjectId: body.selectedId, activeStrokeId: body.strokeId, activeFrame: body.activeFrame ?? baseFrame(), sketchContext:sketchContext(project,body.activeGroupId,body.selectedStrokeIds,body.strokeId), project }) },
     ];
   }
-  let response: Response;
-  try {
-    response = await fetcher(endpoint, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + body.connection.key },
-      body: JSON.stringify({ model: body.connection.model, messages, max_tokens: body.mode === 'test' ? 512 : 4096, stream: false }),
-      cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(45000),
-    });
-  } catch { throw new Error('The provider could not be reached within 45 seconds. Check the endpoint or try again.'); }
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 403) throw new Error('The provider rejected this API key or model access. Check your credentials.');
-    if (response.status === 429) throw new Error('The provider is rate limiting requests. Wait a moment and retry.');
-    if (response.status === 402) throw new Error('The provider requires API credits for this request.');
-    if (response.status === 404) throw new Error('The provider could not find that endpoint or model. Check both fields.');
-    throw new Error('The provider could not complete this request (HTTP ' + response.status + '). Check that the model supports Chat Completions.');
+  // One bounded repair shares the same deadline; invalid geometry never reaches the client preview.
+  const deadline=AbortSignal.timeout(45000);
+  async function complete() {
+    let response: Response;
+    try {
+      response = await fetcher(endpoint, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + body.connection.key },
+        body: JSON.stringify({ model: body.connection.model, messages, max_tokens: body.mode === 'test' ? 512 : 4096, stream: false }),
+        cache: 'no-store', redirect: 'error', signal: deadline,
+      });
+    } catch { throw new Error('The provider could not be reached within 45 seconds. Check the endpoint or try again.'); }
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) throw new Error('The provider rejected this API key or model access. Check your credentials.');
+      if (response.status === 429) throw new Error('The provider is rate limiting requests. Wait a moment and retry.');
+      if (response.status === 402) throw new Error('The provider requires API credits for this request.');
+      if (response.status === 404) throw new Error('The provider could not find that endpoint or model. Check both fields.');
+      throw new Error('The provider could not complete this request (HTTP ' + response.status + '). Check that the model supports Chat Completions.');
+    }
+    const text = await readLimited(response, 512 * 1024);
+    let data;
+    try { data = JSON.parse(text); } catch { throw new Error('The provider returned an unreadable response. Check the API endpoint.'); }
+    const content = data?.choices?.[0]?.message?.content;
+    if (typeof content !== 'string' || !content.trim()) throw new Error('The model returned no final text. It may need a different token budget or API format.');
+    return content as string;
   }
-  const text = await readLimited(response, 512 * 1024);
-  let data;
-  try { data = JSON.parse(text); } catch { throw new Error('The provider returned an unreadable response. Check the API endpoint.'); }
-  const content = data?.choices?.[0]?.message?.content;
-  if (typeof content !== 'string' || !content.trim()) throw new Error('The model returned no final text. It may need a different token budget or API format.');
-  if (body.mode === 'test') return { connected: true };
-  const intent = parseIntentText(content);
-  applyIntent(body.project!, intent, body.activeFrame);
-  return { intent };
+  for(let attempt=0;attempt<2;attempt++) {
+    const content=await complete();
+    if(body.mode==='test')return {connected:true};
+    try {const intent=parseIntentText(content);applyIntent(body.project!,intent,body.activeFrame);return {intent};}
+    catch(error) {
+      const reason=error instanceof z.ZodError?'A component has invalid dimensions or frame axes.':error instanceof Error?error.message:'Invalid modeling proposal.';
+      if(attempt===1)throw new Error('AI could not construct a valid proposal after correction. Your sketch is unchanged. '+reason);
+      messages.push({role:'assistant',content},{role:'user',content:JSON.stringify({validationError:reason,instruction:'Repair the proposal and return complete JSON. Do not change the original design request. Crossing raw pen strokes are valid design evidence: use component to infer NEW simple profiles and separate parts while preserving source ink. Do not use a bounding box as a silent substitute, invent existing IDs, or bypass geometry validation. If the design cannot be represented, return no actions and explain the specific limitation.'})});
+    }
+  }
+  throw new Error('AI did not produce a modeling proposal.');
 }
 export async function readLimited(message: Request | Response, limit: number) {
   if (Number(message.headers.get('content-length')) > limit) throw new Error('The request or response is too large. Use a smaller study.');

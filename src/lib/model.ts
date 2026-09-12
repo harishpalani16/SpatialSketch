@@ -21,10 +21,11 @@ export const strokeSchema = z.object({
 export const objectSchema = z.object({
   id: idSchema, name: z.string().min(1).max(80), kind: kindSchema, plane: planeSchema,
   profile: z.array(pointSchema).min(2).max(256),
-  offset: z.number().finite().min(-200).max(200), height: z.number().finite().min(0.05).max(200),
-  thickness: z.number().finite().min(0.05).max(10), floors: z.number().int().min(1).max(60),
+  offset: z.number().finite().min(-200).max(200), height: z.number().finite().min(0.001).max(200),
+  thickness: z.number().finite().min(0.001).max(10), floors: z.number().int().min(1).max(60),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   sourceStrokeId: idSchema.optional(),
+  sourceStrokeIds: z.array(idSchema).max(1000).optional(),
   frame: frameSchema.optional(),
 }).strict();
 export const sketchGroupSchema = z.object({ id: idSchema, name: z.string().min(1).max(80), visible: z.boolean(), locked: z.boolean(), status: z.enum(['drawing','ready']) }).strict();
@@ -77,7 +78,7 @@ function intersects(a: Point, b: Point, c: Point, d: Point) {
   const abC = cross(a, b, c), abD = cross(a, b, d), cdA = cross(c, d, a), cdB = cross(c, d, b);
   return (abC * abD < 0 && cdA * cdB < 0) || onSegment(a, b, c) || onSegment(a, b, d) || onSegment(c, d, a) || onSegment(c, d, b);
 }
-export function validateProfile(points: Point[], closed: boolean) {
+export function validateProfile(points: Point[], closed: boolean, minimumArea = 0.04) {
   if (points.length < (closed ? 3 : 2)) throw new Error(closed ? 'Draw a closed outline with at least three corners.' : 'Draw a longer wall path.');
   for (let i = 1; i < points.length; i++) if (distance(points[i - 1], points[i]) < 0.001) throw new Error('The outline contains overlapping points. Please redraw that section.');
   const edges = closed ? points.length : points.length - 1;
@@ -85,7 +86,7 @@ export function validateProfile(points: Point[], closed: boolean) {
     if (closed && i === 0 && j === edges - 1) continue;
     if (intersects(points[i], points[(i + 1) % points.length], points[j], points[(j + 1) % points.length])) throw new Error('The outline crosses itself. Use a simple outline, or separate the shapes.');
   }
-  if (closed && polygonArea(points) < 0.04) throw new Error('This outline is too small. Draw a larger shape.');
+  if (closed && polygonArea(points) < minimumArea) throw new Error('This outline is too small. Draw a larger shape.');
 }
 function segmentDistance(p: Point, a: Point, b: Point) {
   const length = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
@@ -129,7 +130,7 @@ export function parseProject(value: unknown): Project {
   if (p.strokes.some(s=>s.groupId && !p.groups.some(g=>g.id===s.groupId))) throw new Error('A stroke refers to a missing sketch.');
   for (const item of [...p.objects, ...p.strokes]) if (item.plane === 'custom' && !item.frame) throw new Error('A spatial sketch or object must include its frame.');
   p.objects.forEach(o => {
-    validateProfile(o.profile, o.kind !== 'wall');
+    validateProfile(o.profile, o.kind !== 'wall', 0.000001);
     if (['table', 'chair', 'pavilion', 'gable'].includes(o.kind)) {
       const a = o.profile;
       if (a.length !== 4 || Math.hypot(a[0].x+a[2].x-a[1].x-a[3].x,a[0].y+a[2].y-a[1].y-a[3].y) > 0.001) throw new Error('Furniture and roof profiles must have four corners forming a parallelogram.');

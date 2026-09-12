@@ -38,8 +38,9 @@ describe('session API proxy', () => {
     await expect(runAI({ mode: 'test', connection }, bad)).rejects.toThrow('The provider rejected');
   });
   it('rejects an unknown target even when the model returns valid JSON', async () => {
-    const fetcher = vi.fn().mockResolvedValue(Response.json({ choices: [{ message: { content: '{"summary":"Edit","actions":[{"type":"update","objectId":"missing","changes":{"height":3}}]}' } }] }));
+    const fetcher = vi.fn().mockImplementation(async()=>Response.json({ choices: [{ message: { content: '{"summary":"Edit","actions":[{"type":"update","objectId":"missing","changes":{"height":3}}]}' } }] }));
     await expect(runAI({ mode: 'interpret', connection, instruction: 'Edit', project: sampleProject() }, fetcher)).rejects.toThrow(/no longer available/);
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
   it('limits streamed bodies, including requests without content-length', async () => {
     await expect(readLimited(new Response('123456'), 5)).rejects.toThrow(/too large/);

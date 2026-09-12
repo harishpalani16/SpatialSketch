@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 async function manualForm(page: Page) { if(!(await page.getByRole('button',{name:'New form',exact:true}).isVisible())) await page.getByText('Model tools',{exact:true}).click();await page.getByRole('button',{name:'New form',exact:true}).click(); }
 async function example(page: Page) {await page.getByRole('button',{name:'Project',exact:true}).click();await page.getByRole('button',{name:'Load example forms',exact:true}).click();}
 import { readFile } from 'node:fs/promises';
+import { facadeSketch, facadeProposal } from '../fixtures/facade';
 
 async function saveProject(page: Page) {
   await page.getByRole('button',{name:'Project',exact:true}).click();
@@ -69,4 +70,16 @@ test('AI receives the active frame, previews cleaned ink, and builds editable fu
   await page.getByRole('button',{name:'Ground',exact:true}).click();await page.getByLabel('A little direction goes a long way.').fill('Build a table');await page.getByRole('button',{name:'Ask AI',exact:true}).click();await expect(page.getByRole('button',{name:'Apply change',exact:true})).toBeVisible();expect((await saveProject(page)).objects).toHaveLength(0);
   await page.getByRole('button',{name:'Apply change',exact:true}).click();const project=await saveProject(page);expect(project.objects[0].kind).toBe('table');
   await page.getByRole('button',{name:'Fit model',exact:true}).click();await page.screenshot({path:info.outputPath('ai-table.png')});
+});
+test('overlapping spatial sketch becomes an editable facade assembly after review, retaining the original ink',async({page},info)=>{
+  const source=facadeSketch(),errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.route('**/api/ai',async route=>{const body=route.request().postDataJSON();expect(body.activeGroupId).toBe('sketch-1');expect(body.selectedStrokeIds).toHaveLength(2);await route.fulfill({json:{intent:facadeProposal}});});
+  await page.goto('/');await expect(page.getByTestId('model-canvas')).toBeVisible();await page.getByTestId('session-file').setInputFiles({name:'facade.spatial.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(source))});await expect(page.getByRole('status')).toContainText('Session opened');
+  await page.getByRole('button',{name:'Open sketch Sketch 1',exact:true}).click();
+  await page.getByRole('button',{name:'Connect API',exact:true}).click();await page.getByLabel('Chat Completions endpoint').fill('https://api.ifm.ai/v1/chat/completions');await page.getByLabel('Model name',{exact:true}).fill('test-model');await page.getByLabel('API key',{exact:true}).fill('test-only-key');await page.getByRole('button',{name:'Use for this session'}).click();
+  await page.getByLabel('A little direction goes a long way.').fill('make a facade edge detail');await page.getByRole('button',{name:'Ask AI',exact:true}).click();await expect(page.getByRole('button',{name:'Apply changes',exact:true})).toBeVisible();
+  expect((await saveProject(page)).objects).toHaveLength(0);await page.getByRole('button',{name:'Apply changes',exact:true}).click();const result=await saveProject(page);expect(result.objects).toHaveLength(3);expect(result.strokes).toEqual(source.strokes);
+  await page.getByRole('button',{name:'Fit model',exact:true}).click();await page.screenshot({path:info.outputPath('facade-interpretation.png')});
+  const height=page.getByRole('spinbutton',{name:'Height',exact:true});await height.fill('0.006');await height.press('Tab');expect((await saveProject(page)).objects[2].height).toBe(.006);
+  await page.getByRole('button',{name:'Undo',exact:true}).click();await page.getByRole('button',{name:'Undo',exact:true}).click();const undone=await saveProject(page);expect(undone.objects).toHaveLength(0);expect(undone.strokes).toEqual(source.strokes);expect(errors).toEqual([]);
 });
