@@ -1,20 +1,9 @@
+import { isSameOrigin } from '@/lib/http';
 import { z } from 'zod';
 import { readLimited, runAI } from '@/lib/api-server';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
-function isSameOrigin(request: Request) {
-  const origin = request.headers.get('origin');
-  if (!origin) return true;
-  try {
-    // Next's internal URL can use the bind address (0.0.0.0); the browser uses Host.
-    const internalURL = new URL(request.url);
-    const host = request.headers.get('host') || internalURL.host;
-    const forwardedProtocol = request.headers.get('x-forwarded-proto');
-    const protocol = forwardedProtocol === 'https' || forwardedProtocol === 'http' ? forwardedProtocol + ':' : internalURL.protocol;
-    return origin === new URL(protocol + '//' + host).origin;
-  } catch { return false; }
-}
+export const maxDuration = 180;
 export async function POST(request: Request) {
   const headers = { 'Cache-Control': 'no-store' };
   if (!isSameOrigin(request)) return Response.json({ error: 'Use the API from this application.' }, { status: 403, headers });
