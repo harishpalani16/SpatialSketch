@@ -1,9 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
+async function manualForm(page: Page) { if(!(await page.getByRole('button',{name:'New form',exact:true}).isVisible())) await page.getByText('Model tools',{exact:true}).click();await page.getByRole('button',{name:'New form',exact:true}).click(); }
+async function example(page: Page) {await page.getByRole('button',{name:'Project',exact:true}).click();await page.getByRole('button',{name:'Load example forms',exact:true}).click();}
 import { readFile } from 'node:fs/promises';
 
 async function saveProject(page: Page) {
   await page.getByRole('button',{name:'Project',exact:true}).click();
-  const event=page.waitForEvent('download'); await page.getByRole('button',{name:'Download project',exact:true}).click();
+  const event=page.waitForEvent('download'); await page.getByRole('button',{name:'Download session',exact:true}).click();
   const download=await event, path=await download.path(); return JSON.parse(await readFile(path!,'utf8'));
 }
 async function pen(page: Page, cancel=false) {
@@ -23,11 +25,11 @@ async function pen(page: Page, cancel=false) {
 test('Pencil draws in an angled 3D frame; orbit preserves ink; model and project round-trip',async({page},info)=>{
   const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto('/'); await expect(page.getByTestId('model-canvas')).toBeVisible();
-  await page.getByRole('button',{name:'Start a fresh study'}).click();
+  await page.getByRole('button',{name:'New empty session'}).click();
   await page.getByRole('button',{name:'View plane',exact:true}).click();
   await pen(page,true); await expect(page.getByRole('status')).toContainText('Stroke interrupted');
   expect((await saveProject(page)).strokes).toHaveLength(0);
-  await pen(page); await expect(page.getByRole('button',{name:'Create form',exact:true})).toBeEnabled();
+  await pen(page); await manualForm(page); await expect(page.getByRole('button',{name:'Create form',exact:true})).toBeEnabled();
   const before=await saveProject(page); expect(before.strokes).toHaveLength(1);expect(before.strokes[0].plane).toBe('custom');
   const f=before.strokes[0].frame;expect(f.u.some((v:number)=>Math.abs(v)>.01&&Math.abs(v)<.99)).toBe(true);
   await page.getByRole('button',{name:'Create form',exact:true}).click();
@@ -49,8 +51,8 @@ test('pick a model face, draw there, and change the next plane without moving pr
   await expect(page.getByRole('status')).toContainText('Face plane placed');
   await pen(page);const before=await saveProject(page);expect(before.strokes[0].frame.hostObjectId).toBe('host');
   await page.getByText('Plane settings',{exact:true}).click();
-  const tilt=page.getByRole('spinbutton',{name:'Plane tilt',exact:true});await tilt.fill('35');await tilt.press('Tab');
-  const depth=page.getByRole('spinbutton',{name:'Plane depth',exact:true});await depth.fill('2');await depth.press('Tab');
+  const tilt=page.getByRole('spinbutton',{name:'Plane rotation X',exact:true});await tilt.fill('35');await tilt.press('Tab');
+  const depth=page.getByRole('spinbutton',{name:'Plane Y',exact:true});await depth.fill('2');await depth.press('Tab');
   await page.getByText('Plane settings',{exact:true}).click();
   await pen(page);const after=await saveProject(page);expect(after.strokes).toHaveLength(2);expect(after.strokes[0]).toEqual(before.strokes[0]);expect(after.strokes[1].frame).not.toEqual(before.strokes[0].frame);
   await page.screenshot({path:info.outputPath('face-and-tilted-plane.png')});
@@ -61,7 +63,7 @@ test('AI receives the active frame, previews cleaned ink, and builds editable fu
     const body=route.request().postDataJSON();expect(body.activeFrame).toHaveProperty('u');calls++;
     await route.fulfill({json:{intent:calls===1?{summary:'Square the sketch and preserve its outline.',actions:[{type:'refine',target:'stroke',id:body.strokeId,mode:'orthogonal'}]}:{summary:'Build a 2 by 1 meter table, 0.75 meters high, at this plane origin.',actions:[{type:'primitive',kind:'table',name:'Dining table',width:2,length:1,height:.75}]}}});
   });
-  await page.goto('/'); await expect(page.getByTestId('model-canvas')).toBeVisible();await page.getByRole('button',{name:'Start a fresh study'}).click();await page.getByRole('button',{name:'View plane',exact:true}).click();await pen(page);
+  await page.goto('/'); await expect(page.getByTestId('model-canvas')).toBeVisible();await page.getByRole('button',{name:'New empty session'}).click();await page.getByRole('button',{name:'View plane',exact:true}).click();await pen(page);
   await page.getByRole('button',{name:'Connect API',exact:true}).click();await page.getByLabel('Chat Completions endpoint').fill('https://api.ifm.ai/v1/chat/completions');await page.getByLabel('Model name',{exact:true}).fill('test-model');await page.getByLabel('API key',{exact:true}).fill('test-only-key');await page.getByRole('button',{name:'Use for this session'}).click();
   await page.getByLabel('A little direction goes a long way.').fill('Straighten this sketch');await page.getByRole('button',{name:'Ask AI',exact:true}).click();await expect(page.getByRole('button',{name:'Apply change',exact:true})).toBeVisible();await page.getByRole('button',{name:'Apply change',exact:true}).click();
   await page.getByRole('button',{name:'Ground',exact:true}).click();await page.getByLabel('A little direction goes a long way.').fill('Build a table');await page.getByRole('button',{name:'Ask AI',exact:true}).click();await expect(page.getByRole('button',{name:'Apply change',exact:true})).toBeVisible();expect((await saveProject(page)).objects).toHaveLength(0);

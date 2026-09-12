@@ -37,6 +37,7 @@ export function applyIntent(project: Project, intent: Intent, activeFrame: Sketc
       if (action.target === 'stroke') {
         const stroke = result.strokes.find(s => s.id === action.id);
         if (!stroke) throw new Error('Select an existing stroke to refine.');
+        if (result.groups.find(g => g.id === (stroke.groupId || result.groups[0].id))?.locked) throw new Error('Unlock this sketch before refining its ink.');
         const b = bounds(stroke.points);
         const closed = distance(stroke.points[0], stroke.points.at(-1)!) <= Math.max(0.6, Math.hypot(b.maxX-b.minX, b.maxY-b.minY) * 0.15);
         const points = refinePoints(stroke.points, action.mode, closed);
@@ -77,6 +78,7 @@ export function parseIntentText(text: string) {
   catch { throw new Error('The model did not return a valid modeling proposal. Try a more specific instruction or another model.'); }
 }
 export const systemPrompt = `You operate Spatial Sketch, a conceptual editable 3D modeler. Return ONLY JSON: {"summary":"Describe exactly what will change, with dimensional assumptions.","actions":[]}. No Markdown or code. All dimensions are meters. You have real modeling tools; use them to fulfill the request rather than giving instructions. Preview and user approval are handled by the app.
+Sketches are organized into named groups. Preserve group membership and never refine ink in a locked group. Imported reference models are separate from editable objects: only their metadata is provided, not their mesh geometry or appearance. Do not claim to see or reconstruct an imported interior, or use a reference ID with object-editing tools.
 TOOLS (use exactly these fields; optional fields may be omitted):
 1. {"type":"refine","target":"stroke","id":"EXISTING ID","mode":"orthogonal"}
    target is stroke or object. straighten simplifies noisy lines to straight edges while preserving angles. orthogonal also squares corners in the outline's dominant orientation. Both preserve concave notches and shape. For 'refine the lines', 'make straight', 'clean up my sketch', prefer the active stroke; for an explicitly selected building outline use object. NEVER replace a concave outline with its bounding box to straighten it. Use this tool, do not claim refinement is unsupported.

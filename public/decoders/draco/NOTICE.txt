@@ -1,0 +1,11 @@
+Draco 3D mesh decoder
+Copyright the Draco authors. Licensed under the Apache License, Version 2.0.
+Source: https://github.com/google/draco
+
+draco_decoder.wasm and draco_wasm_wrapper.js are unmodified glTF decoder
+artifacts copied from three 0.186.0, examples/jsm/libs/draco/gltf.
+The JavaScript wrapper and WebAssembly binary are served locally; importing
+a compressed model does not fetch a decoder from a third-party CDN.
+
+Draco's license is reproduced in LICENSE. Three.js's MIT license is
+reproduced in THREE-LICENSE.

@@ -29,7 +29,7 @@ it('extrudes perpendicular to the frozen frame and retains it through export/imp
   disposeGroup(mesh);
 });
 it('migrates version 1 projects and rejects missing or malformed spatial frames', () => {
-  expect(parseProject({...emptyProject(),version:1}).version).toBe(2);
+  expect(parseProject({...emptyProject(),version:1}).version).toBe(3);
   expect(() => parseProject({...emptyProject(),strokes:[{...stroke,frame:undefined}]})).toThrow(/frame/);
   expect(() => parseProject({...emptyProject(),strokes:[{...stroke,frame:{...baseFrame(),u:[1,0,1]}}]})).toThrow();
 });

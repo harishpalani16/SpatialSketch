@@ -1,23 +1,17 @@
 'use client';
-
+import * as THREE from 'three';
 import { Crosshair, Eye, Hand, Layers, PenLine, Scan, Settings2 } from 'lucide-react';
-import type { SketchFrame } from '@/lib/model';
-import type { SpatialMode } from './model-view';
+import type { Workplane } from '@/lib/model';
+import { frameMatrix } from '@/lib/spatial';
+import { matrixFrame } from '@/lib/session';
+import type { SpatialMode, GizmoMode } from './model-view';
 import NumberField from './number-field';
-
-export type PlaneAdjustment = { tilt: number; turn: number; shift: number };
-type Props = { mode: SpatialMode; onMode: (mode: SpatialMode) => void; frame: SketchFrame; adjustment: PlaneAdjustment; onAdjust: (a: PlaneAdjustment) => void; onViewPlane: () => void; onGround: () => void; onAlign: () => void; showPlane: boolean; onShowPlane: (v: boolean) => void };
-export default function SpatialToolbar(p: Props) {
-  return <div className="spatial-tools">
-    <div className="spatial-tool-row">
-      <div className="spatial-modes"><button className={p.mode === 'draw' ? 'active' : ''} onClick={() => p.onMode('draw')} aria-pressed={p.mode === 'draw'}><PenLine size={15} />Draw in 3D</button><button className={p.mode === 'navigate' ? 'active' : ''} onClick={() => p.onMode('navigate')} aria-pressed={p.mode === 'navigate'}><Hand size={15} />Orbit / select</button></div>
-      <span className="toolbar-divider" />
-      <button className={p.mode === 'pick-face' ? 'active' : ''} onClick={() => p.onMode('pick-face')} aria-pressed={p.mode === 'pick-face'}><Scan size={15} />Pick face</button>
-      <button onClick={p.onViewPlane} title="Freeze a drawing plane facing the current camera, through the orbit center"><Eye size={15} />View plane</button>
-      <button onClick={p.onGround}><Layers size={15} />Ground</button>
-    </div>
-    <div className="spatial-plane-row"><span className="plane-badge"><span className="status-dot" />{p.mode === 'pick-face' ? 'Tap a face to place your sketch plane' : p.frame.label || 'Spatial plane'}</span><span className="spatial-hint">{p.mode === 'draw' ? 'Pencil draws · fingers orbit' : p.mode === 'navigate' ? 'Drag to orbit · tap a form to select' : 'Plane extends beyond the picked face'}</span>
-      <details className="plane-settings"><summary><Settings2 size={13} />Plane settings</summary><div className="plane-popover"><p>Position the next sketch in space.</p><div className="number-grid"><NumberField label="Plane tilt" value={p.adjustment.tilt} min={-180} max={180} unit="°" step={5} onChange={tilt => p.onAdjust({ ...p.adjustment, tilt })} /><NumberField label="Plane turn" value={p.adjustment.turn} min={-180} max={180} unit="°" step={5} onChange={turn => p.onAdjust({ ...p.adjustment, turn })} /><NumberField label="Plane depth" value={p.adjustment.shift} min={-200} max={200} onChange={shift => p.onAdjust({ ...p.adjustment, shift })} /></div><label className="plane-visibility"><input type="checkbox" checked={p.showPlane} onChange={e => p.onShowPlane(e.target.checked)} />Show drawing grid</label><button onClick={p.onAlign}><Crosshair size={14} />Align view to plane</button><small>1 grid step = 1 m. Existing ink stays fixed.</small></div></details>
-    </div>
+type Props={mode:SpatialMode;onMode:(mode:SpatialMode)=>void;plane:Workplane;onChange:(plane:Workplane)=>void;onGizmo:(mode:GizmoMode)=>void;onViewPlane:()=>void;onGround:()=>void;onAlign:()=>void;showPlane:boolean;onShowPlane:(v:boolean)=>void};
+export default function SpatialToolbar(p:Props) {
+  const rotation=new THREE.Euler().setFromRotationMatrix(frameMatrix(p.plane.frame),'XYZ');
+  const angles=[rotation.x,rotation.y,rotation.z].map(n=>Math.round(n*180/Math.PI*100)/100);
+  function orient(index:number,value:number){const a=angles.map((v,i)=>(i===index?value:v)*Math.PI/180);const matrix=new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(a[0],a[1],a[2],'XYZ')).setPosition(...p.plane.frame.origin);p.onChange({...p.plane,frame:matrixFrame(matrix,'Custom plane')});}
+  return <div className="spatial-tools"><div className="spatial-tool-row"><div className="spatial-modes"><button className={p.mode==='draw'?'active':''} onClick={()=>p.onMode('draw')} aria-pressed={p.mode==='draw'}><PenLine size={15}/>Draw in 3D</button><button className={p.mode==='navigate'?'active':''} onClick={()=>p.onMode('navigate')} aria-pressed={p.mode==='navigate'}><Hand size={15}/>Orbit / select</button></div><span className="toolbar-divider"/><button className={p.mode==='pick-face'?'active':''} onClick={()=>p.onMode('pick-face')} aria-pressed={p.mode==='pick-face'}><Scan size={15}/>Pick face</button><button onClick={p.onViewPlane}><Eye size={15}/>View plane</button><button onClick={p.onGround}><Layers size={15}/>Ground</button></div>
+    <div className="spatial-plane-row"><span className="plane-badge"><span className="status-dot"/>{p.mode==='pick-face'?'Tap a model face to place your plane':p.plane.frame.label||'Spatial plane'}</span><span className="spatial-hint">{p.mode==='transform'?'Drag a transform handle · Orbit / select to navigate':p.mode==='draw'?'Pencil draws · fingers orbit':'Drag to orbit · tap ink or a model to select'}</span><details className="plane-settings"><summary><Settings2 size={13}/>Plane settings</summary><div className="plane-popover"><p>Transform the drawing plane.</p><div className="gizmo-buttons"><button onClick={()=>p.onGizmo('translate')}>Move plane</button><button onClick={()=>p.onGizmo('rotate')}>Rotate plane</button><button onClick={()=>p.onGizmo('scale')}>Scale grid</button></div><div className="transform-row">{['X','Y','Z'].map((axis,i)=><NumberField key={axis} label={'Plane '+axis} value={Math.round(p.plane.frame.origin[i]*1000)/1000} min={-1000} max={1000} onChange={value=>p.onChange({...p.plane,frame:{...p.plane.frame,origin:p.plane.frame.origin.map((v,n)=>i===n?value:v) as [number,number,number]}})}/>)}</div><div className="transform-row">{['X','Y','Z'].map((axis,i)=><NumberField key={axis} label={'Plane rotation '+axis} value={angles[i]} min={-180} max={180} step={5} unit="°" onChange={v=>orient(i,v)}/>)}</div><div className="number-grid"><NumberField label="Grid width" value={p.plane.width} min={.1} max={2000} onChange={width=>p.onChange({...p.plane,width})}/><NumberField label="Grid height" value={p.plane.height} min={.1} max={2000} onChange={height=>p.onChange({...p.plane,height})}/></div><label className="plane-visibility"><input type="checkbox" checked={p.showPlane} onChange={e=>p.onShowPlane(e.target.checked)}/>Show drawing grid</label><button onClick={p.onAlign}><Crosshair size={14}/>Align view to plane</button><small>Plane transforms affect the next stroke. Existing ink stays fixed. Grid size changes its visible extent.</small></div></details></div>
   </div>;
 }

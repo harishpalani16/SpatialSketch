@@ -15,6 +15,8 @@ export const strokeSchema = z.object({
   id: idSchema, plane: planeSchema, offset: z.number().finite().min(-200).max(200),
   points: z.array(pointSchema).min(2).max(1500),
   frame: frameSchema.optional(),
+  groupId: idSchema.optional(),
+  name: z.string().min(1).max(80).optional(),
 }).strict();
 export const objectSchema = z.object({
   id: idSchema, name: z.string().min(1).max(80), kind: kindSchema, plane: planeSchema,
@@ -25,10 +27,23 @@ export const objectSchema = z.object({
   sourceStrokeId: idSchema.optional(),
   frame: frameSchema.optional(),
 }).strict();
+export const sketchGroupSchema = z.object({ id: idSchema, name: z.string().min(1).max(80), visible: z.boolean(), locked: z.boolean(), status: z.enum(['drawing','ready']) }).strict();
+export const transformSchema = z.object({ position: vectorSchema, rotation: vectorSchema, scale: z.tuple([z.number().min(0.00001).max(1000),z.number().min(0.00001).max(1000),z.number().min(0.00001).max(1000)]) }).strict();
+export const referenceSchema = z.object({ id:idSchema, assetId:idSchema.regex(/^[a-zA-Z0-9_-]+$/), name:z.string().min(1).max(80), fileName:z.string().min(1).max(300), format:z.enum(['glb','gltf','obj','fbx']), visible:z.boolean(), opacity:z.number().min(0.05).max(1), transform:transformSchema, unitScale:z.number().min(0.000001).max(1000) }).strict();
+export const workplaneSchema = z.object({ frame:frameSchema, width:z.number().min(0.1).max(2000), height:z.number().min(0.1).max(2000) }).strict();
+export const initialGroups = () => [{ id:'sketch-1',name:'Sketch 1',visible:true,locked:false,status:'drawing' as const }];
+export const initialWorkplane = () => ({frame:{origin:[0,0,0] as [number,number,number],u:[1,0,0] as [number,number,number],v:[0,0,-1] as [number,number,number],label:'Ground plane'},width:24,height:24});
 export const projectSchema = z.object({
-  version: z.union([z.literal(1), z.literal(2)]), name: z.string().min(1).max(80),
-  objects: z.array(objectSchema).max(100), strokes: z.array(strokeSchema).max(100),
-}).strict().transform(p => ({ ...p, version: 2 as const }));
+  version: z.union([z.literal(1), z.literal(2), z.literal(3)]), name: z.string().min(1).max(80),
+  objects: z.array(objectSchema).max(100), strokes: z.array(strokeSchema).max(1000),
+  groups:z.array(sketchGroupSchema).min(1).max(100).default(initialGroups),
+  references:z.array(referenceSchema).max(12).default([]),
+  workplane:workplaneSchema.default(initialWorkplane),
+}).strict().transform(p => ({ ...p, version: 3 as const }));
+export type SketchGroup = z.infer<typeof sketchGroupSchema>;
+export type Transform = z.infer<typeof transformSchema>;
+export type ReferenceModel = z.infer<typeof referenceSchema>;
+export type Workplane = z.infer<typeof workplaneSchema>;
 export type Point = z.infer<typeof pointSchema>;
 export type Plane = z.infer<typeof planeSchema>;
 export type Kind = z.infer<typeof kindSchema>;
@@ -46,7 +61,7 @@ export function uid() {
   const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
   return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
 }
-export function emptyProject(): Project { return { version: 2, name: 'Untitled study', objects: [], strokes: [] }; }
+export function emptyProject(): Project { return { version: 3, name: 'Untitled session', objects: [], strokes: [], groups:initialGroups(), references:[], workplane:initialWorkplane() }; }
 export function distance(a: Point, b: Point) { return Math.hypot(a.x - b.x, a.y - b.y); }
 export function polygonArea(points: Point[]) {
   return Math.abs(points.reduce((a, p, i) => { const q = points[(i + 1) % points.length]; return a + p.x * q.y - q.x * p.y; }, 0)) / 2;
@@ -110,6 +125,8 @@ export function createObject(stroke: Stroke, kind: Kind, params: Partial<Pick<Mo
 export function parseProject(value: unknown): Project {
   const p = projectSchema.parse(value);
   if (new Set(p.objects.map(o => o.id)).size !== p.objects.length || new Set(p.strokes.map(s => s.id)).size !== p.strokes.length) throw new Error('Project IDs must be unique.');
+  if (new Set(p.groups.map(g=>g.id)).size !== p.groups.length || new Set(p.references.map(r=>r.id)).size !== p.references.length) throw new Error('Sketch and reference IDs must be unique.');
+  if (p.strokes.some(s=>s.groupId && !p.groups.some(g=>g.id===s.groupId))) throw new Error('A stroke refers to a missing sketch.');
   for (const item of [...p.objects, ...p.strokes]) if (item.plane === 'custom' && !item.frame) throw new Error('A spatial sketch or object must include its frame.');
   p.objects.forEach(o => {
     validateProfile(o.profile, o.kind !== 'wall');
@@ -128,7 +145,7 @@ export function parseProject(value: unknown): Project {
 }
 export function sampleProject(): Project {
   const profile = [{ x: -6, y: -4 }, { x: 6, y: -4 }, { x: 6, y: 0 }, { x: -1, y: 0 }, { x: -1, y: 5 }, { x: -6, y: 5 }];
-  return { version: 2, name: 'Courtyard study', strokes: [], objects: [
+  return { ...emptyProject(), name: 'Courtyard study', strokes: [], objects: [
     { id: 'sample-ground', name: 'Site plinth', kind: 'slab', plane: 'ground', profile: [{ x: -8, y: -6 }, { x: 8, y: -6 }, { x: 8, y: 7 }, { x: -8, y: 7 }], offset: 0, height: 0.2, thickness: 0.25, floors: 1, color: '#ddd8c9' },
     { id: 'sample-mass', name: 'Courtyard volume', kind: 'mass', plane: 'ground', profile, offset: 0.2, height: 7.2, thickness: 0.25, floors: 2, color: palette[0] },
   ] };
