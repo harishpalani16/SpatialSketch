@@ -19,3 +19,27 @@
 .preview-mode-switch{position:absolute;right:20px;top:36px;display:flex;padding:3px;border:1px solid var(--border,#dce1d0);border-radius:9px;background:#fafbf4ed;z-index:3;gap:2px}.preview-mode-switch button{border:0;border-radius:6px;background:transparent;color:#71805d;padding:8px 12px;min-height:36px;font:inherit;font-size:12px;cursor:pointer}.preview-mode-switch button[aria-pressed=true]{background:#e5ebd7;color:#344529}.preview-mode-switch button:focus-visible{outline:2px solid #60754a;outline-offset:2px}@media(max-width:600px){.preview-mode-switch{right:10px;top:30px}.preview-mode-switch button{padding:6px 10px}}
 .speech-input{margin-top:8px}.speech-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px}.speech-toolbar .text-button{font-size:10px}.speech-status{font-size:10px;color:var(--muted);line-height:1.5}.speech-settings,.speech-transcript{padding:12px;margin-top:8px;background:#f0f3e8;border:1px solid var(--line);border-radius:8px;max-width:660px}.speech-settings label,.speech-transcript label{display:block;font-size:11px;margin-bottom:6px}.speech-settings input,.speech-transcript textarea{width:100%;padding:10px;background:#fffef9;border:1px solid var(--line);border-radius:6px;font-size:12px}.speech-transcript textarea{min-height:78px;resize:vertical}.speech-settings p{font-size:10px;line-height:1.6;margin:8px 0;color:#798367}.speech-transcript .speech-toolbar{margin-top:8px}.speech-toolbar .recording{color:#a44734;border-color:#c78576;background:#fff4ec}.speech-settings .secondary-button,.speech-transcript .secondary-button{font-size:11px;padding:8px 10px}@media(max-width:600px){.speech-toolbar{gap:7px 10px}.speech-status{flex-basis:100%}.speech-settings input,.speech-transcript textarea{font-size:16px}}
 .connection-dialog select{width:100%;min-height:41px;background:#fffefb;border:1px solid #dfe5d2;border-radius:6px;padding:9px 11px;font:inherit;font-size:11px;color:var(--ink)}.connection-dialog .form-hint{font-size:10px;color:#939f7d;line-height:1.6;margin-top:8px}@media(max-width:600px){.connection-dialog select{font-size:16px}}
+/* Compact studio chrome: keep the spatial canvas as the primary surface. */
+.app-header{height:50px;padding:0 16px;gap:20px}
+.brand-mark{width:30px;height:32px;border-radius:7px 7px 7px 2px}
+.brand-mark svg{width:24px;height:24px}
+.brand>span:last-child{font-size:19px}
+.brand small{display:none}
+.workspace-toolbar{height:44px;padding:0 16px;gap:8px}
+.panel-heading{height:32px;padding:0 14px}
+.panel-heading h2{font-size:11px}
+.panel-number{display:none}
+.spatial-tools{display:flex;align-items:center;gap:8px;padding:3px 12px}
+.spatial-tool-row{flex:1;min-width:0;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin}
+.spatial-modes,.spatial-tool-row>button,.spatial-tool-row>.toolbar-divider{flex-shrink:0}
+.spatial-tool-row button{min-height:40px}
+.spatial-plane-row{flex-shrink:0;min-height:40px}
+.spatial-plane-row>.plane-badge,.spatial-plane-row>.spatial-hint{display:none}
+.plane-settings>summary{min-height:40px;padding:0 8px}
+.model-footer,.sketch-footer{height:26px}
+.assistant-area{padding:9px 16px 7px}
+.prompt-form{min-height:52px;padding:7px 12px}
+.ai-caption{margin-top:5px}
+.speech-input{margin-top:4px}
+@media(max-width:1100px){.plane-settings>summary{font-size:0;gap:0;width:40px;justify-content:center}.plane-settings>summary svg{width:17px;height:17px}}
+@media(max-width:600px){.app-header{height:48px;padding:0 10px;gap:8px}.brand>span:last-child{font-size:17px}.workspace-toolbar{height:44px;padding:0 10px}.panel-heading{height:30px}.spatial-tools{padding:2px 6px;gap:4px}.spatial-tool-row button{min-height:40px;font-size:10px;padding:0 8px}.spatial-tool-row button svg{width:14px}.spatial-plane-row{min-height:40px}.assistant-area{padding:7px 10px}.prompt-form{min-height:48px}.model-footer{height:24px}}
